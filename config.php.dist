@@ -1,0 +1,13 @@
+<?php
+
+return array(
+    'harvest' => array(
+        'account' => 'caxyinteractive',
+        'user' => '',
+        'pass' => '',
+    ),
+    'forecast' => array(
+        'account' => 792946,
+        'auth' => '',
+    ),
+);
