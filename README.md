@@ -5,8 +5,8 @@ Command to sync data from harvest into forecast
 
 ```bash
 # Clone the repo and cd into the directory
-$ git clone git@github.com:caxy/php-forecast-api.git
-$ cd php-forecast-api
+$ git clone git@github.com:caxy/harvest-forecast-sync.git
+$ cd harvest-forecast-sync
 
 # Install dependencies
 $ composer install
