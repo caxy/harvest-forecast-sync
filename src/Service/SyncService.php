@@ -47,6 +47,8 @@ class SyncService
      */
     protected $assignments = array();
 
+    private $notFoundErrors = array();
+
     /**
      * SyncService constructor.
      *
@@ -78,18 +80,16 @@ class SyncService
 
         $this->loadAssignments($range);
 
-        $notFoundErrors = array();
-
         // Loop through users and sync user entries to forecast.
         foreach ($this->harvestUsers as $user) {
             try {
                 $this->syncUserEntries($user, $range);
             } catch (NotFoundInForecastException $e) {
-                $notFoundErrors[] = $e->getMessage();
+                $this->addNotFoundError($e->getMessage());
             }
         }
 
-        return $notFoundErrors;
+        return $this->notFoundErrors;
     }
 
     public function syncUserEntries($user, Range $range)
@@ -109,19 +109,28 @@ class SyncService
         $forecastUserId = $this->linkedUsers[$user->id];
 
         $userEntries = $this->harvest->getUserEntries($user->id, $range)->data;
+
+        echo sprintf(
+            "\nHarvest user %s %s has *%s* entries in this date range.",
+            $user->{'first-name'},
+            $user->{'last-name'},
+            \count($userEntries)
+        );
+
         $entriesByProject = $this->groupEntriesByProjectAndDate($userEntries);
 
         foreach ($entriesByProject as $harvestProjectId => $dateEntries) {
             $harvestProject = $this->harvestProjects[$harvestProjectId];
             // Check if project exists in forecast.
             if (!array_key_exists($harvestProjectId, $this->linkedProjects)) {
-                throw new NotFoundInForecastException(
+                $this->addNotFoundError(
                     sprintf(
                         'Harvest Project %s (%s) not found in Forecast projects.',
                         $harvestProject->name,
                         $harvestProjectId
                     )
                 );
+                continue;
             }
 
             $forecastProjectId = $this->linkedProjects[$harvestProjectId];
@@ -142,6 +151,13 @@ class SyncService
                 $curDate->modify('+1 day');
 
             }
+        }
+    }
+
+    private function addNotFoundError($message)
+    {
+        if (!in_array($message, $this->notFoundErrors, true)) {
+            $this->notFoundErrors[] = $message;
         }
     }
 
@@ -454,6 +470,12 @@ class SyncService
         $projects = $this->forecast->getProjects();
 
         foreach ($projects as $project) {
+            // if project is archived in forecast, skip it.
+            if ($project['archived'] === true || $project['archived'] === 'true') {
+                echo "\nIgnoring forecast project ".$project['name']." because it is archived.";
+                continue;
+            }
+
             if (!array_key_exists($project['id'], $this->forecastProjects)) {
                 $this->forecastProjects[$project['id']] = $project;
             }
@@ -517,7 +539,7 @@ class SyncService
     {
         $users = $this->forecast->getPeople();
         foreach ($users as $user) {
-            if (!array_key_exists($user['id'], $this->forecastUsers)) {
+            if (!$user['archived'] && !array_key_exists($user['id'], $this->forecastUsers)) {
                 $this->forecastUsers[$user['id']] = $user;
             }
         }
