@@ -7,6 +7,7 @@ use Caxy\HarvestForecast\Exception\NotFoundInForecastException;
 use GuzzleHttp\Exception\ServerException;
 use Harvest\HarvestApi;
 use Harvest\Model\Range;
+use Symfony\Component\Debug\Debug;
 
 class SyncService
 {
@@ -145,7 +146,7 @@ class SyncService
             while ($curDate <= $endDate) {
                 // Get the date as string.
                 $date = $curDate->format('Y-m-d');
-                $this->syncUserEntriesOnDate($date, $dateEntries, $forecastUserId, $forecastProjectId, $lastDateAssignment);
+                $this->syncUserEntriesOnDate($date, $dateEntries, $forecastUserId, $forecastProjectId, $lastDateAssignment, $user);
 
                 // Increment the date for next loop.
                 $curDate->modify('+1 day');
@@ -161,7 +162,7 @@ class SyncService
         }
     }
 
-    protected function syncUserEntriesOnDate($date, $dateEntries, $userId, $projectId, array &$lastDateAssignment = null)
+    protected function syncUserEntriesOnDate($date, $dateEntries, $userId, $projectId, array &$lastDateAssignment = null, $harvestUser)
     {
         // Forecast configured to deny weekends.
         if ($this->isWeekend($date)) {
@@ -185,6 +186,13 @@ class SyncService
 
         // Sum total hours for the date.
         $allocation = $this->calculateAllocationFromEntries($entries);
+        $allocationHours = $allocation / 60 / 60;
+
+        if ($allocationHours < 0 || $allocationHours > 24) {
+            echo "\n[$userId][$projectId][$date] Allocation must be between 0 and 24 hours, but was: " . $allocationHours;
+            $this->addNotFoundError("[$userId][$projectId][$date][" . $harvestUser->{'last-name'} . "] Allocation must be between 0 and 24 hours, but was: " . $allocationHours);
+            return false;
+        }
 
         if (null === $assignment) {
             if ($this->shouldExtendPrevAssignment($lastDateAssignment, $allocation)) {
@@ -574,7 +582,30 @@ class SyncService
 
     protected function loadAssignments(Range $range)
     {
-        $assignments = $this->forecast->getAssignments($range->from(), $range->to());
+        $from = new \DateTime($range->from());
+        $to = new \DateTime($range->to());
+
+        $assignments = [];
+
+        if ($from->diff($to)->days > 180) {
+            $hasMore = true;
+            $fromCursor = clone $from;
+            while ($hasMore) {
+                $newTo = clone $fromCursor;
+                $newTo->modify('+180 days');
+
+                $assignments = array_merge($assignments, $this->forecast->getAssignments($fromCursor->format('Ymd'), $newTo->format('Ymd')));
+
+                $fromCursor = $newTo;
+
+                if ($fromCursor >= $to) {
+                    $hasMore = false;
+                }
+            }
+        } else {
+            $assignments = $this->forecast->getAssignments($range->from(), $range->to());
+        }
+
         $this->assignments = $this->groupAssignmentsByUser($assignments);
     }
 
